@@ -1,0 +1,6 @@
+git command:
+
+git status
+git add -u
+git commit -m "readme"
+git push origin master

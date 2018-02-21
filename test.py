@@ -2,6 +2,8 @@ from dqn_deep import *
 import numpy as np
 import time
 
+print("hello")
+
 
 def gettime(state):
     time_start = time.time()

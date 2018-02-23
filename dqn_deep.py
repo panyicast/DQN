@@ -15,7 +15,7 @@ INITIAL_EPSILON = 1  # starting value of epsilon
 FINAL_EPSILON = 0.1  # final value of epsilon
 REPLAY_SIZE = 1000000  # experience replay buffer size
 BATCH_SIZE = 32  # size of minibatch
-TARGET_UPDATE_FREQUENCY = 10000  # the frequency the target network is updated
+TARGET_UPDATE_FREQUENCY = 10000  # C the frequency the target network updated
 ACTION_REPEAT = 4
 UPDATE_FREQUENCY = 4  # actions between SGD updates
 LEARNING_RATE = 0.00025  # learning rae by RMSProp
@@ -27,6 +27,8 @@ FINAL_EXPLOR_FRAME = 1000000
 REPLAY_START_SIZE = 50000
 NOOP_MAX = 30
 ACTION_DIM = 5  # numbers of actions
+SAVE_PATH = './model'
+dEpsilon = (INITIAL_EPSILON - FINAL_EPSILON) / FINAL_EXPLOR_FRAME
 
 
 class DQN():
@@ -47,6 +49,8 @@ class DQN():
         # Init session
         self.session = tf.InteractiveSession()
         self.session.run(tf.global_variables_initializer())
+        self.update_step = 0
+        self.saver = tf.train.Saver()
 
     def create_Q_network(self):
         ''' network weights '''
@@ -54,50 +58,49 @@ class DQN():
         self.state_input = tf.placeholder(tf.float32, shape=(None, 84, 84, 1))
         # 第一卷积层，32 filters，8*8，stride 4，输出为20*20*64
         with tf.name_scope('conv1'):
-            W_conv1 = weight_variable([8, 8, 1, 32], 'W_conv1')
-            b_conv1 = bias_variable([32], 'b_conv1')
+            self.W_conv1 = weight_variable([8, 8, 1, 32], 'W_conv1')
+            # b_conv1 = bias_variable([32], 'b_conv1')
             conv1 = tf.nn.conv2d(
                 self.state_input,
-                W_conv1,
+                self.W_conv1,
                 strides=[1, 4, 4, 1],
                 padding='VALID')
-            h_conv1 = tf.nn.relu(conv1 + b_conv1)
+            h_conv1 = tf.nn.relu(conv1)
         # 第二卷积层，64 filters，4*4，stride 2，输出为9*9*64
         with tf.name_scope('conv2'):
-            W_conv2 = weight_variable([4, 4, 32, 64], 'W_conv2')
-            b_conv2 = bias_variable([64], 'b_conv2')
+            self.W_conv2 = weight_variable([4, 4, 32, 64], 'W_conv2')
+            # b_conv2 = bias_variable([64], 'b_conv2')
             conv2 = tf.nn.conv2d(
-                h_conv1, W_conv2, strides=[1, 2, 2, 1], padding='VALID')
-            h_conv2 = tf.nn.relu(conv2 + b_conv2)
+                h_conv1, self.W_conv2, strides=[1, 2, 2, 1], padding='VALID')
+            h_conv2 = tf.nn.relu(conv2)
         # 第三卷积层，64 filters，3*3，stride 1，输出为7*7*64
         with tf.name_scope('conv3'):
-            W_conv3 = weight_variable([3, 3, 64, 64], 'W_conv3')
-            b_conv3 = bias_variable([64], 'b_conv3')
+            self.W_conv3 = weight_variable([3, 3, 64, 64], 'W_conv3')
+            # b_conv3 = bias_variable([64], 'b_conv3')
             conv3 = tf.nn.conv2d(
-                h_conv2, W_conv3, strides=[1, 1, 1, 1], padding='VALID')
-            h_conv3 = tf.nn.relu(conv3 + b_conv3)
+                h_conv2, self.W_conv3, strides=[1, 1, 1, 1], padding='VALID')
+            h_conv3 = tf.nn.relu(conv3)
         # 第四卷积层，512 filters，7*7，stride 1，输出为1*1*512
         with tf.name_scope('conv4'):
-            W_conv4 = weight_variable([7, 7, 64, 512], 'W_conv4')
-            b_conv4 = bias_variable([512], 'b_conv4')
+            self.W_conv4 = weight_variable([7, 7, 64, 512], 'W_conv4')
+            # b_conv4 = bias_variable([512], 'b_conv4')
             conv4 = tf.nn.conv2d(
-                h_conv3, W_conv4, strides=[1, 1, 1, 1], padding='VALID')
-            h_conv4 = tf.nn.relu(conv4 + b_conv4)
+                h_conv3, self.W_conv4, strides=[1, 1, 1, 1], padding='VALID')
+            h_conv4 = tf.nn.relu(conv4)
         # 全连接层，输出为512
         with tf.name_scope('fc'):
             fc = tf.nn.relu(tf.contrib.layers.flatten(h_conv4))
         # 输出层，输出Q_value,维度为 ACTION_DIM
         with tf.name_scope('Q_value'):
-            W_output = weight_variable([512, ACTION_DIM], 'W_output')
-            b_output = bias_variable([ACTION_DIM], 'b_output')
-            self.Q_value = tf.matmul(fc, W_output) + b_output
-
-        self.saver = tf.train.Saver()
+            self.W_output = weight_variable([512, ACTION_DIM], 'W_output')
+            self.b_output = bias_variable([ACTION_DIM], 'b_output')
+            self.Q_value = tf.matmul(fc, self.W_output) + self.b_output
 
     def SaveData(self, name):
-        if not os.path.exists(path):
-            os.makedirs(path)
-        self.saver.save(self.session, path + '/model-' + str(name) + '.cptk')
+        if not os.path.exists(SAVE_PATH):
+            os.makedirs(SAVE_PATH)
+        return self.saver.save(
+            self.session, SAVE_PATH + '/model-' + str(name) + '.cptk')
 
     def create_training_method(self):
         self.action_input = tf.placeholder(
@@ -122,6 +125,17 @@ class DQN():
         if len(self.replay_buffer) > BATCH_SIZE:
             self.train_Q_network()
             self.batch_step = 0
+
+    def targetQ(self, state_batch):
+        if self.update_step % TARGET_UPDATE_FREQUENCY == 0:
+            self.targetpath = SaveData('target')
+        with tf.Session() as ss:
+            new_saver = tf.train.import_meta_graph(self.targetpath)
+
+        Q_value_batch = self.Q_value.eval(
+            feed_dict={self.state_input: state_batch})
+ 
+        return Q_value_batch
 
     def train_Q_network(self):
         self.time_step += 1
@@ -162,12 +176,11 @@ class DQN():
         Q_value = self.Q_value.eval(feed_dict={self.state_input: [state]})[0]
         print('Q value : ', Q_value)
         if random.random() <= self.epsilon:
-            return random.randint(0, ACTION_DIM - 1)
+            v = random.randint(0, ACTION_DIM - 1)
         else:
-            return np.argmax(Q_value)
-
-        self.epsilon -= \
-            (INITIAL_EPSILON - FINAL_EPSILON) / FINAL_EXPLOR_FRAME
+            v = np.argmax(Q_value)
+        self.epsilon -= dEpsilon
+        return v
 
     def action(self, state):
         return np.argmax(

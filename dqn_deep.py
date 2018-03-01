@@ -42,14 +42,19 @@ class DQN():
         self.time_step = 0
         self.epsilon = INITIAL_EPSILON
         self.batch_step = 0
+        self.variable = []
+        self.target_variable = []
+        self.temp_variable = []
 
         self.create_Q_network()
         self.create_training_method()
-
+        for i in range(len(self.variable)):
+            self.target_variable.append(tf.Variable(self.variable[i]))
+            self.temp_variable.append(tf.Variable(self.variable[i]))
         # Init session
         self.session = tf.InteractiveSession()
         self.session.run(tf.global_variables_initializer())
-        self.update_step = 0
+        self.step = 0
         self.saver = tf.train.Saver()
 
     def create_Q_network(self):
@@ -58,49 +63,59 @@ class DQN():
         self.state_input = tf.placeholder(tf.float32, shape=(None, 84, 84, 1))
         # 第一卷积层，32 filters，8*8，stride 4，输出为20*20*64
         with tf.name_scope('conv1'):
-            self.W_conv1 = weight_variable([8, 8, 1, 32], 'W_conv1')
+            self.variable.append(weight_variable([8, 8, 1, 32], 'W_conv1'))
             # b_conv1 = bias_variable([32], 'b_conv1')
             conv1 = tf.nn.conv2d(
                 self.state_input,
-                self.W_conv1,
+                self.variable[0],
                 strides=[1, 4, 4, 1],
                 padding='VALID')
             h_conv1 = tf.nn.relu(conv1)
         # 第二卷积层，64 filters，4*4，stride 2，输出为9*9*64
         with tf.name_scope('conv2'):
-            self.W_conv2 = weight_variable([4, 4, 32, 64], 'W_conv2')
+            self.variable.append(weight_variable([4, 4, 32, 64], 'W_conv2'))
             # b_conv2 = bias_variable([64], 'b_conv2')
             conv2 = tf.nn.conv2d(
-                h_conv1, self.W_conv2, strides=[1, 2, 2, 1], padding='VALID')
+                h_conv1,
+                self.variable[1],
+                strides=[1, 2, 2, 1],
+                padding='VALID')
             h_conv2 = tf.nn.relu(conv2)
         # 第三卷积层，64 filters，3*3，stride 1，输出为7*7*64
         with tf.name_scope('conv3'):
-            self.W_conv3 = weight_variable([3, 3, 64, 64], 'W_conv3')
+            self.variable.append(weight_variable([3, 3, 64, 64], 'W_conv3'))
             # b_conv3 = bias_variable([64], 'b_conv3')
             conv3 = tf.nn.conv2d(
-                h_conv2, self.W_conv3, strides=[1, 1, 1, 1], padding='VALID')
+                h_conv2,
+                self.variable[2],
+                strides=[1, 1, 1, 1],
+                padding='VALID')
             h_conv3 = tf.nn.relu(conv3)
         # 第四卷积层，512 filters，7*7，stride 1，输出为1*1*512
         with tf.name_scope('conv4'):
-            self.W_conv4 = weight_variable([7, 7, 64, 512], 'W_conv4')
+            self.variable.append(weight_variable([7, 7, 64, 512], 'W_conv4'))
             # b_conv4 = bias_variable([512], 'b_conv4')
             conv4 = tf.nn.conv2d(
-                h_conv3, self.W_conv4, strides=[1, 1, 1, 1], padding='VALID')
+                h_conv3,
+                self.variable[3],
+                strides=[1, 1, 1, 1],
+                padding='VALID')
             h_conv4 = tf.nn.relu(conv4)
         # 全连接层，输出为512
         with tf.name_scope('fc'):
             fc = tf.nn.relu(tf.contrib.layers.flatten(h_conv4))
         # 输出层，输出Q_value,维度为 ACTION_DIM
         with tf.name_scope('Q_value'):
-            self.W_output = weight_variable([512, ACTION_DIM], 'W_output')
-            self.b_output = bias_variable([ACTION_DIM], 'b_output')
-            self.Q_value = tf.matmul(fc, self.W_output) + self.b_output
+            self.variable.append(
+                weight_variable([512, ACTION_DIM], 'W_output'))
+            self.variable.append(bias_variable([ACTION_DIM], 'b_output'))
+            self.Q_value = tf.matmul(fc, self.variable[4]) + self.variable[5]
 
     def SaveData(self, name):
         if not os.path.exists(SAVE_PATH):
             os.makedirs(SAVE_PATH)
-        return self.saver.save(
-            self.session, SAVE_PATH + '/model-' + str(name) + '.cptk')
+        return self.saver.save(self.session,
+                               SAVE_PATH + '/model-' + str(name) + '.cptk')
 
     def create_training_method(self):
         self.action_input = tf.placeholder(
@@ -126,15 +141,19 @@ class DQN():
             self.train_Q_network()
             self.batch_step = 0
 
-    def targetQ(self, state_batch):
-        if self.update_step % TARGET_UPDATE_FREQUENCY == 0:
-            self.targetpath = SaveData('target')
-        with tf.Session() as ss:
-            new_saver = tf.train.import_meta_graph(self.targetpath)
+    def assign_variable(self, v1, v2):
+        for i in range(len(v1)):
+            self.session.run(tf.assign(v1[i], v2[i]))
 
+    def targetQ(self, state_batch):
+        if self.step % TARGET_UPDATE_FREQUENCY == 0:
+            self.assign_variable(self.target_variable, self.variable)
+
+        self.assign_variable(self.temp_variable, self.variable)
+        self.assign_variable(self.variable, self.target_variable)
         Q_value_batch = self.Q_value.eval(
             feed_dict={self.state_input: state_batch})
- 
+        self.assign_variable(self.variable, self.temp_variable)
         return Q_value_batch
 
     def train_Q_network(self):
@@ -155,8 +174,9 @@ class DQN():
 
         # Step 2: calculate y
         y_batch = []
-        Q_value_batch = self.Q_value.eval(
-            feed_dict={self.state_input: next_state_batch})
+        # Q_value_batch = self.Q_value.eval(
+        #     feed_dict={self.state_input: next_state_batch})
+        Q_value_batch = self.targetQ(next_state_batch)
         for i in range(0, BATCH_SIZE):
             done = minibatch[i][4]
             if done:

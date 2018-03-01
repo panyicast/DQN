@@ -10,7 +10,7 @@ import time
 import random
 import numpy as np
 import pdb
-from DQN import *
+from dqn_deep import *
 
 # Functions
 _NOOP = actions.FUNCTIONS.no_op.id
@@ -54,7 +54,7 @@ class Agent(base_agent.BaseAgent):
 
     def __init__(self):
         super(Agent, self).__init__()
-        self.dqn = DQN(42, 5, 256)
+        self.dqn = DQN()
 
     def SelectMarine(self, obs):
         unit_type = obs.observation["screen"][_UNIT_TYPE]
@@ -137,7 +137,7 @@ class Agent(base_agent.BaseAgent):
 
     def step(self, obs):
         super(Agent, self).step(obs)
-        self.stepd += 1
+        # self.stepd += 1
 
         # time.sleep(0.01)
         s = obs.observation["single_select"]
@@ -148,14 +148,19 @@ class Agent(base_agent.BaseAgent):
 
         self.stepd = self.stepd + 1
         score = obs.observation['score_cumulative'][0]
-        reward = score - self.last_score
+        reward = 1 if score - self.last_score > 0 else 0
+
+        # 如何判断一局游戏结束？
         if score < self.last_score:
+            print('done, new episode!')
             done = True
         else:
             done = False
+
         self.last_score = score
         self.last_reward = reward
-        state = self.getState(obs)
+        # state = self.getState(obs)
+        state = obs.observation["screen"][_PLAYER_RELATIVE]
         # print('state = ',state)
         self.dqn.perceive(self.last_state, self.last_action, reward, state,
                           done)
@@ -166,7 +171,7 @@ class Agent(base_agent.BaseAgent):
                   (self.stepd, score, reward, ACTIONS[action]))
         self.last_action = action
         # pdb.set_trace()
-        self.player_position = state[:2]
+        # self.player_position = state[:2]
         if self.stepd % 10000 == 0:
             d = self.dqn.SaveData(self.stepd)
             print('...data saved!')
